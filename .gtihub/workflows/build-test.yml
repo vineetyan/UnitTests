@@ -1,0 +1,112 @@
+# Main workflow for checking the Build and Testing.
+name: Build Release and Run Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages.
+# Needed for Code Coverage Report Publishing.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+
+  # Build Release, checking the code style simultaneously.
+  build-release:
+    timeout-minutes: 5
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: mcr.microsoft.com/dotnet/sdk:7.0.306
+
+    steps:
+      - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9
+
+      - name: Install Dependencies
+        run: dotnet restore UnitTestCases.sln
+
+      - name: Build Solution
+        run: dotnet build UnitTestCases.sln --configuration Release --no-restore
+
+  # Run Unit Tests and detect Code Coverage.
+  run-unit-tests:
+    timeout-minutes: 5
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: mcr.microsoft.com/dotnet/sdk:7.0.306
+
+    steps:
+      - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9
+
+      - name: Install Dependencies
+        run: dotnet restore UnitTestCases.sln
+
+      - name: Install Coverage Report Generator
+        run: dotnet tool update --global dotnet-reportgenerator-globaltool --version 5.1.15
+
+      # Run Unit Tests with Coverlet parameters for detecting Code Coverage.
+      - name: Run Unit Tests
+        run: |
+          dotnet test UnitTestCases.sln --no-restore \
+          /p:CollectCoverage=true \
+          /p:CoverletOutputFormat=\"json,opencover\" \
+          /p:CoverletOutput=../../reports/unit-test-coverage/ \
+          /p:MergeWith=../../reports/unit-test-coverage/coverage.json
+      # Create a nice HTML Code Coverage report.
+      - name: Generate Final Coverage Report
+        run: |
+          ~/.dotnet/tools/reportgenerator -reports:reports/unit-test-coverage/coverage.opencover.xml \
+          -targetdir:reports/unit-test-coverage/html \
+          -reporttypes:HTMLInline
+      - name: Store Coverage Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-coverage-report
+          path: reports/unit-test-coverage/html/*
+
+  # Public Coverage Reports to GitHub Pages, for an easy overview.
+  publish-coverage-report:
+    needs: run-unit-tests
+
+    timeout-minutes: 5
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: mcr.microsoft.com/dotnet/sdk:7.0.306
+
+    # Do this job only for the 'main' branch, as other branches
+    # are not relevant for having a transparent coverage overview.
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Download Coverage Results
+        uses: actions/download-artifact@v3
+        with:
+          name: code-coverage-report
+          path: reports/unit-test-coverage/html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload Code Coverage Results
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: reports/unit-test-coverage/html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
+
+  
