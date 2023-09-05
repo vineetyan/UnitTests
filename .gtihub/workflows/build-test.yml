@@ -1,5 +1,5 @@
 # Main workflow for checking the Build and Testing.
-name: Build Release and Run Tests
+name: Build and Run Tests
 
 on:
   push:
